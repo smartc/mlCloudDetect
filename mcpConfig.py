@@ -33,6 +33,16 @@ class McpConfig():
                 'ALLSKYSAMPLING': "True",               # Whether to sample the allsky camera
                 'ALLSKYSAMPLEDIR': '/home/gtulloch/allskyimages',      # Where to save the sampled images
                 'ALLSKYSAMPLERATE': '10',                 # How often to save images
+                'MQTT_ENABLED'  : 'False',              # Enable MQTT publishing
+                'MQTT_BROKER'   : 'localhost',          # MQTT broker hostname or IP
+                'MQTT_PORT'     : '1883',               # MQTT broker port
+                'MQTT_USERNAME' : '',                   # MQTT username (empty for anonymous)
+                'MQTT_PASSWORD' : '',                   # MQTT password (empty for anonymous)
+                'MQTT_TOPIC'    : 'observatory/clouds', # MQTT topic for cloud status
+                'MQTT_HA_DISCOVERY': 'True',            # Enable Home Assistant AutoDiscovery
+                'MQTT_HA_PREFIX': 'homeassistant',      # Home Assistant discovery prefix
+                'MQTT_DEVICE_NAME': 'Observatory Cloud Detector',  # Device name in Home Assistant
+                'MQTT_DEVICE_ID': 'mlclouddetect',      # Unique device identifier
             }
             with open(self.file_path, 'w') as configfile:
                 self.config.write(configfile)

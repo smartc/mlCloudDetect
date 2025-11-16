@@ -61,13 +61,14 @@ class McpClouds(object):
                     print("SQLITE Error accessing indi-allsky "+str(e)+", exiting")
                     exit(0)
             else:
-                # Grab the image file from whereever 
+                # Grab the image file from whereever
                 image_file = config.get("ALLSKYFILE")
         logger.info('Loading image: %s', image_file)
-        
-        result=self.detect(image_file).replace('\n', '')
 
-              
+        result, confidence = self.detect(image_file)
+        result = result.replace('\n', '')
+
+
         # If allskysampling turned on save a copy of the image if count = allskysamplerate
         if self.config.get("ALLSKYSAMPLING") == "True":
             logging.info('Sampling image count ' + str(self.imageCount))
@@ -83,9 +84,9 @@ class McpClouds(object):
                 logging.info(f"Copying {image_file} to {destination_path}")
                 self.imageCount = 1
             else:
-                self.imageCount += 1    
+                self.imageCount += 1
 
-        return (result != 'Clear',result)
+        return (result != 'Clear', result, confidence)
 
     def detect(self, imagePath):
          # Load the labels
@@ -122,5 +123,5 @@ class McpClouds(object):
         logger.info("Class:"+str(class_name[2:]).replace('\n', ''))
         logger.info("Confidence Score:"+str(confidence_score))
 
-        return(class_name[2:])
+        return (class_name[2:], float(confidence_score))
 

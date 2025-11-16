@@ -16,6 +16,8 @@ from mcpClouds import McpClouds
 clouds=McpClouds()
 from mcpConfig import McpConfig
 config=McpConfig()
+from mcpMqtt import McpMqtt
+mqtt_client=McpMqtt()
 
 # Set up logging
 import logging
@@ -52,42 +54,63 @@ pendingCount=int(config.get("PENDING"))
 cloudCount = clearCount = 0
 roofStatus="UNKNOWN"
 
-while True:
-	# If the sun is up don't bother
-	date = datetime.datetime.now(datetime.timezone.utc)
-	if (get_altitude(latitude, longitude, date) > int(config.get("DAYTIME"))):
-		logger.info("Daytime skipping")
-		f = open(roofStatusFile,"w")	
-		f.write("Daytime")
-		f.close()
-		time.sleep(300)
-		continue
-	
-	# Call the clouds object to determine if it's cloudy
-	result,text=clouds.isCloudy()
+try:
+	while True:
+		# If the sun is up don't bother
+		date = datetime.datetime.now(datetime.timezone.utc)
+		sun_altitude = get_altitude(latitude, longitude, date)
 
-	if (result):
-		cloudCount +=1
-		if (cloudCount >= int(config.get("PENDING"))):
-			roofStatus=config.get("CLOUDMSG")
-			clearCount=0
-		elif not(roofStatus==config.get("CLOUDMSG")):
-			roofStatus=config.get("CLOUDPENDINGMSG")
-			clearCount=0
-	else:
-		clearCount+=1
-		if (clearCount >= int(config.get("PENDING"))):
-			roofStatus=config.get("CLEARMSG")
-			cloudCount=0
-		elif not(roofStatus==config.get("CLEARMSG")):
-			cloudCount=0
-			roofStatus=config.get("CLEARPENDINGMSG")
+		if (sun_altitude > int(config.get("DAYTIME"))):
+			logger.info("Daytime skipping")
+			f = open(roofStatusFile,"w")
+			f.write("Daytime")
+			f.close()
+			time.sleep(300)
+			continue
 
-	logger.info("Roof Status: "+roofStatus)
- 
-	f1=open(roofStatusFile,"w")
-	f1.write(roofStatus+"\r\n"+text)
-	f1.close
-	print(roofStatus," -- ",date,text)
+		# Call the clouds object to determine if it's cloudy
+		result, text, confidence = clouds.isCloudy()
 
-	time.sleep(60)
+		if (result):
+			cloudCount +=1
+			if (cloudCount >= int(config.get("PENDING"))):
+				roofStatus=config.get("CLOUDMSG")
+				clearCount=0
+			elif not(roofStatus==config.get("CLOUDMSG")):
+				roofStatus=config.get("CLOUDPENDINGMSG")
+				clearCount=0
+		else:
+			clearCount+=1
+			if (clearCount >= int(config.get("PENDING"))):
+				roofStatus=config.get("CLEARMSG")
+				cloudCount=0
+			elif not(roofStatus==config.get("CLEARMSG")):
+				cloudCount=0
+				roofStatus=config.get("CLEARPENDINGMSG")
+
+		logger.info("Roof Status: "+roofStatus)
+
+		f1=open(roofStatusFile,"w")
+		f1.write(roofStatus+"\r\n"+text)
+		f1.close
+		print(roofStatus," -- ",date,text)
+
+		# Publish to MQTT if enabled
+		mqtt_client.publish_cloud_status(
+			is_cloudy=result,
+			sky_state=text,
+			confidence=confidence,
+			roof_status=roofStatus,
+			sun_altitude=sun_altitude
+		)
+
+		time.sleep(60)
+
+except KeyboardInterrupt:
+	logger.info("Program interrupted by user")
+	mqtt_client.disconnect()
+	print("\nProgram stopped by user")
+except Exception as e:
+	logger.error("Unexpected error: %s", str(e))
+	mqtt_client.disconnect()
+	raise
