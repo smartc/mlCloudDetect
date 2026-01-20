@@ -66,7 +66,7 @@ device_id = "mlclouddetect"
 
 [service]
 # Service mode: "single" (run once and exit) or "continuous" (run as daemon)
-mode = "continuous"
+mode = "single"
 
 # Detection interval in seconds (for continuous mode)
 interval = 60
@@ -116,7 +116,7 @@ class MqttConfig:
 
 @dataclass
 class ServiceConfig:
-    mode: str = "continuous"  # "single" or "continuous"
+    mode: str = "single"  # "single" or "continuous"
     interval: int = 60  # seconds between detections
     pending_count: int = 3  # consecutive readings to change state
 

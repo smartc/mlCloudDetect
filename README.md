@@ -22,11 +22,25 @@ Cloud detection for observatory automation using machine learning. Analyzes alls
 
 ## Installation
 
+### Quick Install
+
 ```bash
 # Clone the repository
 git clone https://github.com/smartc/mlCloudDetect.git
 cd mlCloudDetect
 
+# Run the installation script
+./install.sh
+```
+
+The install script will:
+- Create a Python virtual environment
+- Install dependencies
+- Set up the systemd service with correct paths
+
+### Manual Install
+
+```bash
 # Create virtual environment
 python -m venv .venv
 source .venv/bin/activate
@@ -77,59 +91,56 @@ pending_count = 3    # consecutive readings to change state
 
 ## Usage
 
-### Run as Service (default)
+### Single Detection (default)
 
 ```bash
+# Run once and exit
 python cloud_detect.py
+
+# Analyze specific image
+python cloud_detect.py --image /path/to/image.jpg
 ```
 
-The service will:
+### Run as Daemon Service
+
+```bash
+python cloud_detect.py --daemon
+```
+
+The daemon will:
 1. Connect to MQTT broker (if enabled)
 2. Run detection at the configured interval
 3. Skip detection during daytime (based on sun altitude)
 4. Publish results to MQTT
 5. Handle graceful shutdown on SIGTERM/SIGINT
 
-### Single Detection
-
-```bash
-# Run once and exit
-python cloud_detect.py --single
-
-# Analyze specific image
-python cloud_detect.py --image /path/to/image.jpg
-```
-
 ### Command Line Options
 
 ```
 -c, --config PATH   Path to config.toml file
--i, --image PATH    Analyze specific image (forces single mode)
--s, --single        Run single detection and exit
+-i, --image PATH    Analyze specific image
+-d, --daemon        Run as continuous service
 -v, --verbose       Enable verbose logging
 -q, --quiet         Suppress output except errors
 ```
 
 ## Running as a Systemd Service
 
-1. Copy the service file:
-   ```bash
-   cp mlCloudDetect.service ~/.config/systemd/user/
-   ```
+The install script automatically sets up the systemd service. To start it:
 
-2. Edit paths in the service file to match your installation
+```bash
+# Enable and start the service
+systemctl --user enable mlCloudDetect
+systemctl --user start mlCloudDetect
 
-3. Enable and start:
-   ```bash
-   systemctl --user daemon-reload
-   systemctl --user enable mlCloudDetect
-   systemctl --user start mlCloudDetect
-   ```
+# View logs
+journalctl --user -u mlCloudDetect -f
 
-4. View logs:
-   ```bash
-   journalctl --user -u mlCloudDetect -f
-   ```
+# Enable service to run after logout (optional)
+sudo loginctl enable-linger $USER
+```
+
+For manual setup without the install script, copy `mlCloudDetect.service` to `~/.config/systemd/user/` and edit the paths.
 
 ## Home Assistant Integration
 

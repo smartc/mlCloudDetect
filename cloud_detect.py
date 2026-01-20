@@ -288,12 +288,12 @@ def main() -> int:
     parser.add_argument(
         "-i", "--image",
         type=str,
-        help="Path to image file (overrides camera configuration, forces single mode)",
+        help="Path to image file (overrides camera configuration)",
     )
     parser.add_argument(
-        "-s", "--single",
+        "-d", "--daemon",
         action="store_true",
-        help="Run single detection and exit (overrides config)",
+        help="Run as continuous service (default: single detection)",
     )
     parser.add_argument(
         "-v", "--verbose",
@@ -331,11 +331,11 @@ def main() -> int:
             # Give MQTT time to connect
             time.sleep(0.5)
 
-        # Determine run mode
-        if args.image or args.single or config.service.mode == "single":
-            return run_single(config, mqtt_publisher, args.image, args.quiet)
-        else:
+        # Determine run mode (default: single, use --daemon for continuous)
+        if args.daemon or config.service.mode == "continuous":
             return run_service(config, mqtt_publisher, args.quiet)
+        else:
+            return run_single(config, mqtt_publisher, args.image, args.quiet)
 
     except FileNotFoundError as e:
         logger.error(f"File not found: {e}")

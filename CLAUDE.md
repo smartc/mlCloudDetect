@@ -89,26 +89,29 @@ Then copy `model.onnx` to your Python 3.13 machine.
 
 ## Running the Application
 
-### Service Mode (default)
+### Single Detection (default)
 ```bash
 python cloud_detect.py
-```
-Runs continuously, detecting at configured interval and publishing to MQTT.
-
-### Single Detection
-```bash
-python cloud_detect.py --single
 python cloud_detect.py --image /path/to/image.jpg
 ```
+
+### Daemon Mode
+```bash
+python cloud_detect.py --daemon
+```
+Runs continuously, detecting at configured interval and publishing to MQTT.
 
 ### Command-Line Options
 ```
 -c, --config PATH   Path to config.toml file
--i, --image PATH    Path to specific image file (forces single mode)
--s, --single        Run single detection and exit
+-i, --image PATH    Path to specific image file
+-d, --daemon        Run as continuous service
 -v, --verbose       Enable verbose logging
 -q, --quiet         Suppress output except errors
 ```
+
+### Installation Script
+Run `./install.sh` to automatically set up the virtual environment, install dependencies, and configure the systemd service with correct paths.
 
 ## Configuration (config.toml)
 

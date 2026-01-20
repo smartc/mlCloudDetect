@@ -21,7 +21,7 @@ Environment=PYTHONUNBUFFERED=1
 
 # Edit these paths to match your installation
 WorkingDirectory=/home/user/mlCloudDetect
-ExecStart=/home/user/mlCloudDetect/.venv/bin/python /home/user/mlCloudDetect/cloud_detect.py -q
+ExecStart=/home/user/mlCloudDetect/.venv/bin/python /home/user/mlCloudDetect/cloud_detect.py --daemon -q
 
 # Restart on failure
 Restart=on-failure
