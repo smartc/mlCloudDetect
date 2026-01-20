@@ -39,8 +39,21 @@ def convert_keras_to_onnx(input_path: str, output_path: str) -> None:
     import tensorflow as tf
     import tf2onnx
 
+    # Custom DepthwiseConv2D that ignores unrecognized arguments
+    # Needed for models created with older Keras versions
+    class CompatibleDepthwiseConv2D(tf.keras.layers.DepthwiseConv2D):
+        def __init__(self, *args, **kwargs):
+            # Remove arguments not recognized by newer Keras
+            kwargs.pop('groups', None)
+            super().__init__(*args, **kwargs)
+
+    # Custom objects for loading older Keras models
+    custom_objects = {
+        'DepthwiseConv2D': CompatibleDepthwiseConv2D,
+    }
+
     print(f"Loading Keras model: {input_path}")
-    model = tf.keras.models.load_model(input_path, compile=False)
+    model = tf.keras.models.load_model(input_path, compile=False, custom_objects=custom_objects)
 
     print("Model summary:")
     model.summary()
