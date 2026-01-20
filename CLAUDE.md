@@ -4,7 +4,7 @@ This file provides guidance to Claude Code when working with code in this reposi
 
 ## Project Overview
 
-**mlCloudDetect** is a cloud detection system for observatory automation that uses machine learning to analyze allsky camera images and determine sky conditions. It uses ONNX Runtime to run models trained on allsky images, classifying sky conditions as "Clear" or "Cloudy".
+**mlCloudDetect** is a cloud detection system for observatory automation that uses machine learning to analyze allsky camera images and determine sky conditions. It uses ONNX Runtime to run models trained on allsky images, classifying sky conditions as "Clear" or "Cloudy". Results are published via MQTT for Home Assistant integration.
 
 ## Architecture
 
@@ -14,9 +14,10 @@ The codebase is designed for Python 3.13 compatibility using ONNX Runtime instea
 
 1. **cloud_detect.py** - Main application entry point
    - Command-line interface for running detection
-   - Supports single-shot detection or specifying an image directly
+   - Supports continuous service mode or single-shot detection
    - Uses pysolar to calculate sun altitude and skip processing during daytime
-   - Writes roof status to file for observatory automation systems
+   - Signal handling for graceful shutdown (SIGTERM/SIGINT)
+   - `StateTracker` class for hysteresis (prevents rapid state changes)
 
 2. **detector.py** - Cloud detection engine
    - `CloudDetector` class: Loads and executes ONNX models for image classification
@@ -28,8 +29,14 @@ The codebase is designed for Python 3.13 compatibility using ONNX Runtime instea
    - Uses TOML format for configuration (Python 3.11+ built-in tomllib)
    - Dataclass-based configuration with type hints
    - Auto-generates default config.toml if missing
+   - Sections: observatory, camera, model, mqtt, service
 
-4. **convert_model.py** - Model conversion utility
+4. **mqtt.py** - MQTT publishing with Home Assistant integration
+   - `MqttPublisher` class: Connects to MQTT broker, publishes results
+   - Home Assistant auto-discovery: Creates sensor entities automatically
+   - Uses paho-mqtt with MQTTv5 protocol
+
+5. **convert_model.py** - Model conversion utility
    - Converts Keras H5 models to ONNX format
    - Must be run on a machine with TensorFlow installed (Python 3.10-3.12)
    - Only needed once to convert existing models
@@ -43,16 +50,16 @@ ImageSource.get_latest_image() -> image path
     |
 CloudDetector.detect() -> preprocesses & runs ONNX model
     |
-cloud_detect.py -> outputs result
+StateTracker.update() -> hysteresis logic
     |
-Output: roofStatus.txt + console output
+MqttPublisher.publish() -> MQTT broker -> Home Assistant
 ```
 
 ## Development Setup
 
 ### Python Environment
 - **Python Version**: 3.13+ (designed for modern Python)
-- **Key Dependencies**: ONNX Runtime 1.19+, NumPy 2.x, Pillow 11+
+- **Key Dependencies**: ONNX Runtime 1.19+, NumPy 2.x, Pillow 11+, paho-mqtt 2.1+
 
 ### Install Dependencies
 ```bash
@@ -82,20 +89,23 @@ Then copy `model.onnx` to your Python 3.13 machine.
 
 ## Running the Application
 
-### Basic Usage
+### Service Mode (default)
 ```bash
 python cloud_detect.py
 ```
+Runs continuously, detecting at configured interval and publishing to MQTT.
 
-### With Specific Image
+### Single Detection
 ```bash
+python cloud_detect.py --single
 python cloud_detect.py --image /path/to/image.jpg
 ```
 
 ### Command-Line Options
 ```
 -c, --config PATH   Path to config.toml file
--i, --image PATH    Path to specific image file
+-i, --image PATH    Path to specific image file (forces single mode)
+-s, --single        Run single detection and exit
 -v, --verbose       Enable verbose logging
 -q, --quiet         Suppress output except errors
 ```
@@ -122,9 +132,22 @@ model_path = "model.onnx"
 labels_path = "labels.txt"
 image_size = 224
 
-[output]
-status_file = "roofStatus.txt"
-pending_count = 10
+[mqtt]
+enabled = true
+broker = "localhost"
+port = 1883
+username = ""
+password = ""
+topic = "mlclouddetect/status"
+ha_discovery = true
+ha_discovery_prefix = "homeassistant"
+device_name = "Cloud Detector"
+device_id = "mlclouddetect"
+
+[service]
+mode = "continuous"  # or "single"
+interval = 60        # seconds between detections
+pending_count = 3    # consecutive readings to change state
 ```
 
 ## Code Patterns
@@ -132,7 +155,7 @@ pending_count = 10
 ### Logging
 All modules use Python's logging module:
 - Format: `'%(asctime)s - %(name)s - %(levelname)s - %(message)s'`
-- Default level: INFO, configurable via --verbose/--quiet
+- Default level: WARNING, configurable via --verbose (INFO) or --quiet (ERROR)
 
 ### Type Hints
 Code uses modern Python type hints including:
@@ -146,9 +169,28 @@ When camera type is "indi-allsky":
 2. Queries for latest image by camera ID
 3. Constructs full path using image_base_path
 
+### State Hysteresis
+The `StateTracker` class prevents rapid state changes:
+- Requires `pending_count` consecutive readings before confirming a state change
+- Logs pending transitions and confirmations
+- Useful for avoiding flapping due to transient cloud conditions
+
+## Systemd Service
+
+A `mlCloudDetect.service` file is provided for running as a systemd service:
+
+```bash
+# Install as user service
+cp mlCloudDetect.service ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable mlCloudDetect
+systemctl --user start mlCloudDetect
+
+# View logs
+journalctl --user -u mlCloudDetect -f
+```
+
 ## Future Enhancements (Planned)
 
-- MQTT integration for Home Assistant
 - ASCOM Alpaca server for Switch and SafetyMonitor devices
-- Continuous monitoring loop with state hysteresis
 - Image sampling for model retraining

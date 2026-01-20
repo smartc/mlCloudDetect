@@ -63,6 +63,17 @@ ha_discovery = true
 ha_discovery_prefix = "homeassistant"
 device_name = "Cloud Detector"
 device_id = "mlclouddetect"
+
+[service]
+# Service mode: "single" (run once and exit) or "continuous" (run as daemon)
+mode = "continuous"
+
+# Detection interval in seconds (for continuous mode)
+interval = 60
+
+# Number of consecutive readings required before changing state
+# Helps prevent rapid state changes due to transient conditions
+pending_count = 3
 """
 
 
@@ -104,11 +115,19 @@ class MqttConfig:
 
 
 @dataclass
+class ServiceConfig:
+    mode: str = "continuous"  # "single" or "continuous"
+    interval: int = 60  # seconds between detections
+    pending_count: int = 3  # consecutive readings to change state
+
+
+@dataclass
 class Config:
     observatory: ObservatoryConfig = field(default_factory=ObservatoryConfig)
     camera: CameraConfig = field(default_factory=CameraConfig)
     model: ModelConfig = field(default_factory=ModelConfig)
     mqtt: MqttConfig = field(default_factory=MqttConfig)
+    service: ServiceConfig = field(default_factory=ServiceConfig)
 
 
 def load_config(config_path: Path | None = None) -> Config:
@@ -170,6 +189,14 @@ def load_config(config_path: Path | None = None) -> Config:
             ha_discovery_prefix=mqtt.get("ha_discovery_prefix", "homeassistant"),
             device_name=mqtt.get("device_name", "Cloud Detector"),
             device_id=mqtt.get("device_id", "mlclouddetect"),
+        )
+
+    if "service" in data:
+        svc = data["service"]
+        config.service = ServiceConfig(
+            mode=svc.get("mode", "continuous"),
+            interval=svc.get("interval", 60),
+            pending_count=svc.get("pending_count", 3),
         )
 
     return config
