@@ -50,12 +50,6 @@ def print_result(result: DetectionResult, sun_altitude: float | None = None) -> 
     print()
 
 
-def write_status(status_file: str, result: DetectionResult, roof_status: str) -> None:
-    """Write status to file for external systems."""
-    Path(status_file).write_text(roof_status)
-    logger.info(f"Status written to {status_file}: {roof_status}")
-
-
 def run_detection(config: Config, image_path: str | None = None) -> DetectionResult:
     """Run a single cloud detection.
 
@@ -143,12 +137,6 @@ def main() -> int:
         # Output result
         if not args.quiet:
             print_result(result, sun_altitude)
-
-        # Determine simple roof status based on single reading
-        roof_status = "Roof Closed" if result.is_cloudy else "Roof Open"
-
-        # Write status file
-        write_status(config.output.status_file, result, roof_status)
 
         return 0
 

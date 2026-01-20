@@ -45,12 +45,6 @@ labels_path = "labels.txt"
 # Image size expected by model
 image_size = 224
 
-[output]
-# Path to write roof status file
-status_file = "roofStatus.txt"
-
-# Number of consecutive readings required before state change
-pending_count = 10
 """
 
 
@@ -78,17 +72,10 @@ class ModelConfig:
 
 
 @dataclass
-class OutputConfig:
-    status_file: str = "roofStatus.txt"
-    pending_count: int = 10
-
-
-@dataclass
 class Config:
     observatory: ObservatoryConfig = field(default_factory=ObservatoryConfig)
     camera: CameraConfig = field(default_factory=CameraConfig)
     model: ModelConfig = field(default_factory=ModelConfig)
-    output: OutputConfig = field(default_factory=OutputConfig)
 
 
 def load_config(config_path: Path | None = None) -> Config:
@@ -135,13 +122,6 @@ def load_config(config_path: Path | None = None) -> Config:
             model_path=mdl.get("model_path", "model.onnx"),
             labels_path=mdl.get("labels_path", "labels.txt"),
             image_size=mdl.get("image_size", 224),
-        )
-
-    if "output" in data:
-        out = data["output"]
-        config.output = OutputConfig(
-            status_file=out.get("status_file", "roofStatus.txt"),
-            pending_count=out.get("pending_count", 10),
         )
 
     return config
