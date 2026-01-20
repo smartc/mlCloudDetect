@@ -6,7 +6,7 @@ This script requires TensorFlow and tf2onnx, which may not work on Python 3.13.
 Run this on a machine with Python 3.10-3.12 and TensorFlow installed.
 
 Requirements (for conversion machine only):
-    pip install tensorflow tf2onnx
+    pip install tensorflow tf2onnx onnx
 
 Usage:
     python convert_model.py keras_model.h5 model.onnx
@@ -16,6 +16,22 @@ Usage:
 import argparse
 import sys
 from pathlib import Path
+
+# Patch NumPy for compatibility with tf2onnx on newer NumPy versions
+# tf2onnx uses deprecated np.object, np.bool, etc. that were removed in NumPy 1.24+
+import numpy as np
+if not hasattr(np, 'object'):
+    np.object = object
+if not hasattr(np, 'bool'):
+    np.bool = bool
+if not hasattr(np, 'int'):
+    np.int = int
+if not hasattr(np, 'float'):
+    np.float = float
+if not hasattr(np, 'complex'):
+    np.complex = complex
+if not hasattr(np, 'str'):
+    np.str = str
 
 
 def convert_keras_to_onnx(input_path: str, output_path: str) -> None:
