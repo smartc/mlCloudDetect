@@ -2,27 +2,31 @@
 """
 mlCloudDetect - Cloud detection for observatory automation.
 
-Uses a Keras model trained on allsky camera images to classify
+Uses an ONNX model trained on allsky camera images to classify
 sky conditions as Clear or Cloudy.
 """
 
 import argparse
 import logging
+import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+
+# Suppress ONNX Runtime warnings before importing
+os.environ['ORT_LOGGING_LEVEL'] = 'ERROR'
 
 from pysolar.solar import get_altitude
 
 from config import Config, load_config
 from detector import CloudDetector, DetectionResult, ImageSource
 
-# Configure logging
+# Configure logging - default to WARNING, use -v for verbose
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.WARNING,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     handlers=[
-        logging.StreamHandler(sys.stdout),
+        logging.StreamHandler(sys.stderr),
     ],
 )
 logger = logging.getLogger(__name__)
@@ -106,7 +110,7 @@ def main() -> int:
 
     # Configure logging level
     if args.verbose:
-        logging.getLogger().setLevel(logging.DEBUG)
+        logging.getLogger().setLevel(logging.INFO)
     elif args.quiet:
         logging.getLogger().setLevel(logging.ERROR)
 
