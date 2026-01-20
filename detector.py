@@ -1,4 +1,4 @@
-"""Cloud detection using Keras/TensorFlow model."""
+"""Cloud detection using ONNX Runtime."""
 
 import logging
 import sqlite3
@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
+import onnxruntime as ort
 from PIL import Image, ImageOps
 
 from config import CameraConfig, ModelConfig
@@ -24,29 +25,33 @@ class DetectionResult:
 
 
 class CloudDetector:
-    """Detects clouds in allsky camera images using a Keras model."""
+    """Detects clouds in allsky camera images using an ONNX model."""
 
     def __init__(self, model_config: ModelConfig):
         self.model_config = model_config
-        self.model = None
+        self.session: ort.InferenceSession | None = None
+        self.input_name: str = ""
         self.labels: list[str] = []
         self._load_model()
         self._load_labels()
 
     def _load_model(self) -> None:
-        """Load the Keras model."""
-        import keras
-
+        """Load the ONNX model."""
         model_path = Path(self.model_config.model_path)
         if not model_path.exists():
             raise FileNotFoundError(f"Model file not found: {model_path}")
 
-        logger.info(f"Loading Keras model: {model_path}")
+        logger.info(f"Loading ONNX model: {model_path}")
 
-        # Keras 3 can load Keras 2 H5 models
-        # compile=False since we only need inference
-        self.model = keras.saving.load_model(str(model_path), compile=False)
-        logger.info("Model loaded successfully")
+        # Create inference session
+        self.session = ort.InferenceSession(
+            str(model_path),
+            providers=['CPUExecutionProvider']
+        )
+
+        # Get input name for inference
+        self.input_name = self.session.get_inputs()[0].name
+        logger.info(f"Model loaded successfully (input: {self.input_name})")
 
     def _load_labels(self) -> None:
         """Load class labels from file."""
@@ -113,7 +118,8 @@ class CloudDetector:
         input_data = self._preprocess_image(image_path)
 
         # Run inference
-        predictions = self.model.predict(input_data, verbose=0)
+        outputs = self.session.run(None, {self.input_name: input_data})
+        predictions = outputs[0]
 
         # Get result
         class_index = int(np.argmax(predictions[0]))

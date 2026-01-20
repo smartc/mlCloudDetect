@@ -4,11 +4,11 @@ This file provides guidance to Claude Code when working with code in this reposi
 
 ## Project Overview
 
-**mlCloudDetect** is a cloud detection system for observatory automation that uses machine learning to analyze allsky camera images and determine sky conditions. It uses Keras/TensorFlow models trained on allsky images to classify sky conditions as "Clear" or "Cloudy".
+**mlCloudDetect** is a cloud detection system for observatory automation that uses machine learning to analyze allsky camera images and determine sky conditions. It uses ONNX Runtime to run models trained on allsky images, classifying sky conditions as "Clear" or "Cloudy".
 
 ## Architecture
 
-The codebase is designed with Python 3.13 compatibility using TensorFlow 2.18+ and Keras 3.
+The codebase is designed for Python 3.13 compatibility using ONNX Runtime instead of TensorFlow (which has compatibility issues with Python 3.13).
 
 ### Core Components
 
@@ -19,7 +19,7 @@ The codebase is designed with Python 3.13 compatibility using TensorFlow 2.18+ a
    - Writes roof status to file for observatory automation systems
 
 2. **detector.py** - Cloud detection engine
-   - `CloudDetector` class: Loads and executes Keras models for image classification
+   - `CloudDetector` class: Loads and executes ONNX models for image classification
    - `ImageSource` class: Retrieves images from INDI-ALLSKY database or file
    - Image preprocessing: resizes to 224x224, normalizes to [-1, 1] range
    - Returns `DetectionResult` dataclass with is_cloudy, class_name, confidence, image_path
@@ -29,6 +29,11 @@ The codebase is designed with Python 3.13 compatibility using TensorFlow 2.18+ a
    - Dataclass-based configuration with type hints
    - Auto-generates default config.toml if missing
 
+4. **convert_model.py** - Model conversion utility
+   - Converts Keras H5 models to ONNX format
+   - Must be run on a machine with TensorFlow installed (Python 3.10-3.12)
+   - Only needed once to convert existing models
+
 ### Data Flow
 
 ```
@@ -36,7 +41,7 @@ Image Source (INDI-ALLSKY DB or File)
     |
 ImageSource.get_latest_image() -> image path
     |
-CloudDetector.detect() -> preprocesses & runs ML model
+CloudDetector.detect() -> preprocesses & runs ONNX model
     |
 cloud_detect.py -> outputs result
     |
@@ -47,7 +52,7 @@ Output: roofStatus.txt + console output
 
 ### Python Environment
 - **Python Version**: 3.13+ (designed for modern Python)
-- **Key Dependencies**: TensorFlow 2.18+, Keras 3, NumPy 2.x, Pillow 11+
+- **Key Dependencies**: ONNX Runtime 1.19+, NumPy 2.x, Pillow 11+
 
 ### Install Dependencies
 ```bash
@@ -57,11 +62,23 @@ pip install -r requirements.txt
 ### Required Files (Not in Repo)
 
 These files are excluded via .gitignore and must be provided:
-- `keras_model.h5` - Trained Keras model file (Keras 2 or 3 format)
+- `model.onnx` - ONNX model file (converted from Keras using convert_model.py)
 - `labels.txt` - Class labels (format: "0 Clear\n1 Cloudy\n")
 - `config.toml` - Configuration file (auto-generated with defaults if missing)
 
-Models can be trained using Google Teachable Machine or similar tools.
+### Converting Keras Models to ONNX
+
+If you have an existing Keras H5 model (e.g., from Google Teachable Machine), convert it on a machine with TensorFlow:
+
+```bash
+# On a machine with Python 3.10-3.12 and TensorFlow
+pip install tensorflow tf2onnx onnx
+
+# Convert the model
+python convert_model.py keras_model.h5 model.onnx
+```
+
+Then copy `model.onnx` to your Python 3.13 machine.
 
 ## Running the Application
 
@@ -101,7 +118,7 @@ image_base_path = "/var/www/html/allsky/images"
 image_file = ""  # for type="file"
 
 [model]
-model_path = "keras_model.h5"
+model_path = "model.onnx"
 labels_path = "labels.txt"
 image_size = 224
 

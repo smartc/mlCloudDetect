@@ -36,8 +36,8 @@ image_base_path = "/var/www/html/allsky/images"
 image_file = ""
 
 [model]
-# Path to Keras model file (.h5 or SavedModel directory)
-model_path = "keras_model.h5"
+# Path to ONNX model file (convert from Keras using convert_model.py)
+model_path = "model.onnx"
 
 # Path to labels file
 labels_path = "labels.txt"
@@ -72,7 +72,7 @@ class CameraConfig:
 
 @dataclass
 class ModelConfig:
-    model_path: str = "keras_model.h5"
+    model_path: str = "model.onnx"
     labels_path: str = "labels.txt"
     image_size: int = 224
 
@@ -132,7 +132,7 @@ def load_config(config_path: Path | None = None) -> Config:
     if "model" in data:
         mdl = data["model"]
         config.model = ModelConfig(
-            model_path=mdl.get("model_path", "keras_model.h5"),
+            model_path=mdl.get("model_path", "model.onnx"),
             labels_path=mdl.get("labels_path", "labels.txt"),
             image_size=mdl.get("image_size", 224),
         )

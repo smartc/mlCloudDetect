@@ -19,6 +19,7 @@ misc/
 
 # Model files
 *.keras
+*.onnx
 
 # Created files
 roofStatus.txt
