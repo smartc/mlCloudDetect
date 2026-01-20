@@ -1,6 +1,5 @@
 """Cloud detection using ONNX Runtime."""
 
-import contextlib
 import logging
 import os
 import sqlite3
@@ -9,30 +8,24 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
-import onnxruntime as ort
 from PIL import Image, ImageOps
 
 from config import CameraConfig, ModelConfig
 
-# Suppress ONNX Runtime logging
-ort.set_default_logger_severity(3)  # ERROR only
+# Import onnxruntime with stderr suppressed to hide GPU discovery warnings
+_fd = sys.stderr.fileno()
+_old_stderr = os.dup(_fd)
+_devnull = os.open(os.devnull, os.O_WRONLY)
+os.dup2(_devnull, _fd)
+try:
+    import onnxruntime as ort
+    ort.set_default_logger_severity(3)  # ERROR only
+finally:
+    os.dup2(_old_stderr, _fd)
+    os.close(_devnull)
+    os.close(_old_stderr)
 
 logger = logging.getLogger(__name__)
-
-
-@contextlib.contextmanager
-def suppress_stderr():
-    """Temporarily suppress stderr output."""
-    fd = sys.stderr.fileno()
-    old_stderr = os.dup(fd)
-    devnull = os.open(os.devnull, os.O_WRONLY)
-    os.dup2(devnull, fd)
-    try:
-        yield
-    finally:
-        os.dup2(old_stderr, fd)
-        os.close(devnull)
-        os.close(old_stderr)
 
 
 @dataclass
@@ -64,12 +57,11 @@ class CloudDetector:
 
         logger.info(f"Loading ONNX model: {model_path}")
 
-        # Create inference session (suppress GPU discovery warnings)
-        with suppress_stderr():
-            self.session = ort.InferenceSession(
-                str(model_path),
-                providers=['CPUExecutionProvider']
-            )
+        # Create inference session (CPU only)
+        self.session = ort.InferenceSession(
+            str(model_path),
+            providers=['CPUExecutionProvider']
+        )
 
         # Get input name for inference
         self.input_name = self.session.get_inputs()[0].name
