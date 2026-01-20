@@ -19,6 +19,7 @@ misc/
 
 # Model files
 *.keras
+*.onnx
 
 # Created files
 roofStatus.txt
@@ -27,6 +28,7 @@ cloudHistory.txt
 allskycam.txt
 latest.jpg
 *.ini
+config.toml
 
 # Windows executables
 *.exe
