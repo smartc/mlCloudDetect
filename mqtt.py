@@ -94,24 +94,37 @@ class MqttPublisher:
             "sw_version": "2.0",
         }
 
-        # Binary sensor for cloudy/clear state
-        binary_sensor_config = {
+        discovery_prefix = self.config.ha_discovery_prefix
+        device_id = self.config.device_id
+
+        # Text sensor showing "Cloudy" or "Clear"
+        sky_sensor_config = {
             "name": "Sky Condition",
-            "unique_id": f"{self.config.device_id}_sky_condition",
+            "unique_id": f"{device_id}_sky_condition",
             "state_topic": self.config.topic,
-            "value_template": "{{ value_json.state }}",
-            "payload_on": "cloudy",
-            "payload_off": "clear",
-            "device_class": "problem",
+            "value_template": "{{ value_json.class_name }}",
             "device": device_info,
+            "icon": "mdi:weather-cloudy",
             "json_attributes_topic": self.config.topic,
             "json_attributes_template": "{{ value_json | tojson }}",
+        }
+
+        # Binary sensor for automations (is_cloudy true/false)
+        binary_sensor_config = {
+            "name": "Is Cloudy",
+            "unique_id": f"{device_id}_is_cloudy",
+            "state_topic": self.config.topic,
+            "value_template": "{{ value_json.is_cloudy }}",
+            "payload_on": True,
+            "payload_off": False,
+            "device": device_info,
+            "icon": "mdi:cloud-question",
         }
 
         # Sensor for confidence level
         confidence_sensor_config = {
             "name": "Detection Confidence",
-            "unique_id": f"{self.config.device_id}_confidence",
+            "unique_id": f"{device_id}_confidence",
             "state_topic": self.config.topic,
             "value_template": "{{ value_json.confidence }}",
             "unit_of_measurement": "%",
@@ -120,11 +133,14 @@ class MqttPublisher:
         }
 
         # Publish discovery configs
-        discovery_prefix = self.config.ha_discovery_prefix
-        device_id = self.config.device_id
+        self.client.publish(
+            f"{discovery_prefix}/sensor/{device_id}/sky_condition/config",
+            json.dumps(sky_sensor_config),
+            retain=True,
+        )
 
         self.client.publish(
-            f"{discovery_prefix}/binary_sensor/{device_id}/sky_condition/config",
+            f"{discovery_prefix}/binary_sensor/{device_id}/is_cloudy/config",
             json.dumps(binary_sensor_config),
             retain=True,
         )
