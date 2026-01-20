@@ -4,7 +4,7 @@ Description=mlCloudDetect Service
 [Service]
 Environment=PYTHONUNBUFFERED=1
 WorkingDirectory=/home/gtulloch/mlCloudDetect
-ExecStart=/home/gtulloch/mlCloudDetect/.venv/bin/python /home/gtulloch/mlCloudDetect/mlCloudDetect.py
+ExecStart=/home/gtulloch/mlCloudDetect/.venv/bin/python /home/gtulloch/mlCloudDetect/cloud_detect.py
 Restart=always
 
 [Install]
