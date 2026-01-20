@@ -172,6 +172,31 @@ class MqttPublisher:
 
         logger.info("Published Home Assistant discovery configuration")
 
+    def _build_image_url(self, image_path: str) -> str | None:
+        """Build a URL to the full-size image on the web server.
+
+        Args:
+            image_path: Local filesystem path to the image.
+
+        Returns:
+            URL to the image, or None if URL cannot be constructed.
+        """
+        if not self.config.image_base_url:
+            return None
+
+        # Extract relative path by finding '/images/' in the path
+        # e.g., /var/www/html/allsky/images/ccd/2024/01/20/img.jpg -> ccd/2024/01/20/img.jpg
+        images_marker = "/images/"
+        if images_marker in image_path:
+            relative_path = image_path.split(images_marker, 1)[1]
+        else:
+            # Fallback: just use the filename
+            relative_path = Path(image_path).name
+
+        # Construct URL, ensuring no double slashes
+        base_url = self.config.image_base_url.rstrip("/")
+        return f"{base_url}/{relative_path}"
+
     def _create_thumbnail(self, image_path: str) -> bytes | None:
         """Create a thumbnail from the source image.
 
@@ -258,6 +283,11 @@ class MqttPublisher:
             "image_path": result.image_path,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
+
+        # Add image URL if configured
+        image_url = self._build_image_url(result.image_path)
+        if image_url:
+            payload["image_url"] = image_url
 
         if sun_altitude is not None:
             payload["sun_altitude"] = round(sun_altitude, 1)
