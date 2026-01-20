@@ -1,10 +1,13 @@
 """MQTT publishing with Home Assistant auto-discovery."""
 
+import io
 import json
 import logging
 from datetime import datetime, timezone
+from pathlib import Path
 
 import paho.mqtt.client as mqtt
+from PIL import Image
 
 from config import MqttConfig
 from detector import DetectionResult
@@ -151,7 +154,113 @@ class MqttPublisher:
             retain=True,
         )
 
+        # Camera entity for thumbnail image
+        if self.config.thumbnail_enabled:
+            camera_config = {
+                "name": "Sky Camera",
+                "unique_id": f"{device_id}_camera",
+                "topic": self.config.thumbnail_topic,
+                "device": device_info,
+                "icon": "mdi:camera",
+            }
+
+            self.client.publish(
+                f"{discovery_prefix}/camera/{device_id}/sky_camera/config",
+                json.dumps(camera_config),
+                retain=True,
+            )
+
         logger.info("Published Home Assistant discovery configuration")
+
+    def _build_image_url(self, image_path: str) -> str | None:
+        """Build a URL to the full-size image on the web server.
+
+        Args:
+            image_path: Local filesystem path to the image.
+
+        Returns:
+            URL to the image, or None if URL cannot be constructed.
+        """
+        if not self.config.image_base_url:
+            return None
+
+        # Extract relative path by finding '/images/' in the path
+        # e.g., /var/www/html/allsky/images/ccd/2024/01/20/img.jpg -> ccd/2024/01/20/img.jpg
+        images_marker = "/images/"
+        if images_marker in image_path:
+            relative_path = image_path.split(images_marker, 1)[1]
+        else:
+            # Fallback: just use the filename
+            relative_path = Path(image_path).name
+
+        # Construct URL, ensuring no double slashes
+        base_url = self.config.image_base_url.rstrip("/")
+        return f"{base_url}/{relative_path}"
+
+    def _create_thumbnail(self, image_path: str) -> bytes | None:
+        """Create a thumbnail from the source image.
+
+        Args:
+            image_path: Path to the source image.
+
+        Returns:
+            JPEG image data as bytes, or None if creation failed.
+        """
+        try:
+            if not Path(image_path).exists():
+                logger.warning(f"Image not found for thumbnail: {image_path}")
+                return None
+
+            # Open and resize the image
+            with Image.open(image_path) as img:
+                # Convert to RGB if necessary (e.g., RGBA images)
+                if img.mode != "RGB":
+                    img = img.convert("RGB")
+
+                # Calculate size maintaining aspect ratio
+                size = self.config.thumbnail_size
+                img.thumbnail((size, size), Image.Resampling.LANCZOS)
+
+                # Save to bytes buffer as JPEG
+                buffer = io.BytesIO()
+                img.save(buffer, format="JPEG", quality=self.config.thumbnail_quality)
+                return buffer.getvalue()
+
+        except Exception as e:
+            logger.error(f"Failed to create thumbnail: {e}")
+            return None
+
+    def publish_thumbnail(self, image_path: str) -> bool:
+        """Publish a thumbnail image to MQTT.
+
+        Args:
+            image_path: Path to the source image.
+
+        Returns:
+            True if published successfully, False otherwise.
+        """
+        if not self.config.enabled or not self._connected:
+            return False
+
+        if not self.config.thumbnail_enabled:
+            return False
+
+        thumbnail_data = self._create_thumbnail(image_path)
+        if thumbnail_data is None:
+            return False
+
+        try:
+            self.client.publish(
+                self.config.thumbnail_topic,
+                thumbnail_data,
+                retain=True,
+            )
+            logger.info(f"Published thumbnail ({len(thumbnail_data)} bytes)")
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to publish thumbnail: {e}")
+            return False
 
     def publish(self, result: DetectionResult, sun_altitude: float | None = None) -> bool:
         """Publish detection result to MQTT.
@@ -175,6 +284,11 @@ class MqttPublisher:
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
 
+        # Add image URL if configured
+        image_url = self._build_image_url(result.image_path)
+        if image_url:
+            payload["image_url"] = image_url
+
         if sun_altitude is not None:
             payload["sun_altitude"] = round(sun_altitude, 1)
 
@@ -185,6 +299,11 @@ class MqttPublisher:
                 retain=True,
             )
             logger.info(f"Published to MQTT: {result.class_name} ({result.confidence:.1%})")
+
+            # Also publish thumbnail if enabled
+            if self.config.thumbnail_enabled:
+                self.publish_thumbnail(result.image_path)
+
             return True
 
         except Exception as e:
