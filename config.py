@@ -64,6 +64,12 @@ ha_discovery_prefix = "homeassistant"
 device_name = "Cloud Detector"
 device_id = "mlclouddetect"
 
+# Thumbnail image publishing
+thumbnail_enabled = true
+thumbnail_topic = "mlclouddetect/thumbnail"
+thumbnail_size = 320
+thumbnail_quality = 75
+
 [service]
 # Service mode: "single" (run once and exit) or "continuous" (run as daemon)
 mode = "single"
@@ -112,6 +118,10 @@ class MqttConfig:
     ha_discovery_prefix: str = "homeassistant"
     device_name: str = "Cloud Detector"
     device_id: str = "mlclouddetect"
+    thumbnail_enabled: bool = True
+    thumbnail_topic: str = "mlclouddetect/thumbnail"
+    thumbnail_size: int = 320
+    thumbnail_quality: int = 75
 
 
 @dataclass
@@ -189,6 +199,10 @@ def load_config(config_path: Path | None = None) -> Config:
             ha_discovery_prefix=mqtt.get("ha_discovery_prefix", "homeassistant"),
             device_name=mqtt.get("device_name", "Cloud Detector"),
             device_id=mqtt.get("device_id", "mlclouddetect"),
+            thumbnail_enabled=mqtt.get("thumbnail_enabled", True),
+            thumbnail_topic=mqtt.get("thumbnail_topic", "mlclouddetect/thumbnail"),
+            thumbnail_size=mqtt.get("thumbnail_size", 320),
+            thumbnail_quality=mqtt.get("thumbnail_quality", 75),
         )
 
     if "service" in data:
