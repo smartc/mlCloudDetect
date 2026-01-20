@@ -45,6 +45,24 @@ labels_path = "labels.txt"
 # Image size expected by model
 image_size = 224
 
+[mqtt]
+# Enable MQTT publishing
+enabled = false
+
+# MQTT broker connection
+broker = "localhost"
+port = 1883
+username = ""
+password = ""
+
+# MQTT topics
+topic = "mlclouddetect/status"
+
+# Home Assistant integration
+ha_discovery = true
+ha_discovery_prefix = "homeassistant"
+device_name = "Cloud Detector"
+device_id = "mlclouddetect"
 """
 
 
@@ -72,10 +90,25 @@ class ModelConfig:
 
 
 @dataclass
+class MqttConfig:
+    enabled: bool = False
+    broker: str = "localhost"
+    port: int = 1883
+    username: str = ""
+    password: str = ""
+    topic: str = "mlclouddetect/status"
+    ha_discovery: bool = True
+    ha_discovery_prefix: str = "homeassistant"
+    device_name: str = "Cloud Detector"
+    device_id: str = "mlclouddetect"
+
+
+@dataclass
 class Config:
     observatory: ObservatoryConfig = field(default_factory=ObservatoryConfig)
     camera: CameraConfig = field(default_factory=CameraConfig)
     model: ModelConfig = field(default_factory=ModelConfig)
+    mqtt: MqttConfig = field(default_factory=MqttConfig)
 
 
 def load_config(config_path: Path | None = None) -> Config:
@@ -122,6 +155,21 @@ def load_config(config_path: Path | None = None) -> Config:
             model_path=mdl.get("model_path", "model.onnx"),
             labels_path=mdl.get("labels_path", "labels.txt"),
             image_size=mdl.get("image_size", 224),
+        )
+
+    if "mqtt" in data:
+        mqtt = data["mqtt"]
+        config.mqtt = MqttConfig(
+            enabled=mqtt.get("enabled", False),
+            broker=mqtt.get("broker", "localhost"),
+            port=mqtt.get("port", 1883),
+            username=mqtt.get("username", ""),
+            password=mqtt.get("password", ""),
+            topic=mqtt.get("topic", "mlclouddetect/status"),
+            ha_discovery=mqtt.get("ha_discovery", True),
+            ha_discovery_prefix=mqtt.get("ha_discovery_prefix", "homeassistant"),
+            device_name=mqtt.get("device_name", "Cloud Detector"),
+            device_id=mqtt.get("device_id", "mlclouddetect"),
         )
 
     return config

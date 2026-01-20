@@ -6,8 +6,8 @@ pillow>=11.0.0
 # For sun altitude calculations
 pysolar>=0.11
 
-# Future: MQTT integration
-# paho-mqtt>=2.1.0
+# MQTT integration for Home Assistant
+paho-mqtt>=2.1.0
 
 # Future: ASCOM Alpaca
 # alpyca>=3.0.0

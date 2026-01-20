@@ -16,6 +16,7 @@ from pysolar.solar import get_altitude
 
 from config import Config, load_config
 from detector import CloudDetector, DetectionResult, ImageSource
+from mqtt import MqttPublisher
 
 # Configure logging - default to WARNING, use -v for verbose
 logging.basicConfig(
@@ -110,9 +111,16 @@ def main() -> int:
     elif args.quiet:
         logging.getLogger().setLevel(logging.ERROR)
 
+    mqtt_publisher = None
+
     try:
         # Load configuration
         config = load_config(args.config)
+
+        # Initialize MQTT if enabled
+        if config.mqtt.enabled:
+            mqtt_publisher = MqttPublisher(config.mqtt)
+            mqtt_publisher.connect()
 
         # Check sun altitude (skip during daytime unless image specified)
         sun_altitude = None
@@ -138,6 +146,10 @@ def main() -> int:
         if not args.quiet:
             print_result(result, sun_altitude)
 
+        # Publish to MQTT
+        if mqtt_publisher:
+            mqtt_publisher.publish(result, sun_altitude)
+
         return 0
 
     except FileNotFoundError as e:
@@ -146,6 +158,9 @@ def main() -> int:
     except Exception as e:
         logger.exception(f"Error: {e}")
         return 1
+    finally:
+        if mqtt_publisher:
+            mqtt_publisher.disconnect()
 
 
 if __name__ == "__main__":
