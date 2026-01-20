@@ -3,18 +3,22 @@
 import logging
 import os
 import sqlite3
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-# Suppress ONNX Runtime device discovery warnings
-os.environ['ORT_DISABLE_GPU_DEVICE_ENUMERATION'] = '1'
-
 import numpy as np
-import onnxruntime as ort
 from PIL import Image, ImageOps
 
-# Disable ONNX Runtime's verbose logging
-ort.set_default_logger_severity(3)  # 3 = ERROR only
+# Suppress ONNX Runtime C++ warnings during import
+_stderr = sys.stderr
+sys.stderr = open(os.devnull, 'w')
+try:
+    import onnxruntime as ort
+    ort.set_default_logger_severity(3)  # ERROR only
+finally:
+    sys.stderr.close()
+    sys.stderr = _stderr
 
 from config import CameraConfig, ModelConfig
 

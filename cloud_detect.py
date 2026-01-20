@@ -8,13 +8,9 @@ sky conditions as Clear or Cloudy.
 
 import argparse
 import logging
-import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-
-# Suppress ONNX Runtime warnings before importing
-os.environ['ORT_LOGGING_LEVEL'] = 'ERROR'
 
 from pysolar.solar import get_altitude
 
