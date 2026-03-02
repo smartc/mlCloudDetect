@@ -89,8 +89,8 @@ class TrainingCapture:
 
         if result is not None:
             entry["class_name"] = result.class_name
-            entry["confidence"] = round(result.confidence * 100, 1)
-            entry["is_cloudy"] = result.is_cloudy
+            entry["confidence"] = round(float(result.confidence) * 100, 1)
+            entry["is_cloudy"] = bool(result.is_cloudy)
         else:
             entry["class_name"] = None
             entry["confidence"] = None
