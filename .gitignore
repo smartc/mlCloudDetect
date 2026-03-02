@@ -11,6 +11,9 @@ labels.txt
 *.jpg
 *.config
 
+# Training image captures
+training_data/
+
 # Stuff not complete
 misc/
 
