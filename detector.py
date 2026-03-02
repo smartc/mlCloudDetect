@@ -63,9 +63,17 @@ class CloudDetector:
             providers=['CPUExecutionProvider']
         )
 
-        # Get input name for inference
-        self.input_name = self.session.get_inputs()[0].name
-        logger.info(f"Model loaded successfully (input: {self.input_name})")
+        # Get input details for inference
+        model_input = self.session.get_inputs()[0]
+        self.input_name = model_input.name
+
+        # Auto-detect tensor layout from model input shape:
+        #   PyTorch ONNX:  [1, 3, 224, 224] -> NCHW (channels first)
+        #   TF/Teachable:  [1, 224, 224, 3] -> NHWC (channels last)
+        input_shape = model_input.shape
+        self._channels_first = len(input_shape) == 4 and input_shape[1] == 3
+        layout = "NCHW" if self._channels_first else "NHWC"
+        logger.info(f"Model loaded successfully (input: {self.input_name}, layout: {layout})")
 
     def _load_labels(self) -> None:
         """Load class labels from file."""
@@ -108,10 +116,15 @@ class CloudDetector:
         # Convert to numpy array
         image_array = np.asarray(image, dtype=np.float32)
 
-        # Normalize to [-1, 1] range (Google Teachable Machine format)
+        # Normalize to [-1, 1] range
         normalized = (image_array / 127.5) - 1.0
 
-        # Add batch dimension: (224, 224, 3) -> (1, 224, 224, 3)
+        # Transpose to NCHW if model expects channels-first (PyTorch ONNX)
+        if self._channels_first:
+            # (224, 224, 3) -> (3, 224, 224)
+            normalized = np.transpose(normalized, (2, 0, 1))
+
+        # Add batch dimension
         return np.expand_dims(normalized, axis=0)
 
     def detect(self, image_path: str) -> DetectionResult:
