@@ -7,10 +7,27 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+import numpy as np
+
 from config import TrainingConfig
 from detector import CloudDetector, DetectionResult
 
 logger = logging.getLogger(__name__)
+
+
+class _NumpyEncoder(json.JSONEncoder):
+    """JSON encoder that handles numpy scalar types."""
+
+    def default(self, obj):
+        if isinstance(obj, np.integer):
+            return int(obj)
+        if isinstance(obj, np.floating):
+            return float(obj)
+        if isinstance(obj, np.bool_):
+            return bool(obj)
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        return super().default(obj)
 
 
 class TrainingCapture:
@@ -108,7 +125,7 @@ class TrainingCapture:
             else:
                 data = []
             data.append(entry)
-            log_path.write_text(json.dumps(data, indent=2) + "\n")
+            log_path.write_text(json.dumps(data, indent=2, cls=_NumpyEncoder) + "\n")
             logger.info(f"Training log updated: {log_path}")
         except Exception as e:
             logger.error(f"Failed to update training log {log_path}: {e}")
