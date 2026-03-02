@@ -22,6 +22,7 @@ class MqttPublisher:
         self.config = config
         self.client: mqtt.Client | None = None
         self._connected = False
+        self._has_connected = False
 
     def connect(self) -> bool:
         """Connect to the MQTT broker.
@@ -52,6 +53,12 @@ class MqttPublisher:
             self.client.on_connect = self._on_connect
             self.client.on_disconnect = self._on_disconnect
 
+            # Configure automatic reconnection with exponential backoff
+            self.client.reconnect_delay_set(
+                min_delay=self.config.reconnect_min_delay,
+                max_delay=self.config.reconnect_max_delay,
+            )
+
             # Connect to broker
             logger.info(f"Connecting to MQTT broker: {self.config.broker}:{self.config.port}")
             self.client.connect(self.config.broker, self.config.port)
@@ -74,8 +81,14 @@ class MqttPublisher:
     def _on_connect(self, client, userdata, flags, reason_code, properties) -> None:
         """Handle connection to broker."""
         if reason_code == 0:
-            logger.info("Connected to MQTT broker")
+            if self._has_connected:
+                logger.info("Reconnected to MQTT broker")
+            else:
+                logger.info("Connected to MQTT broker")
+                self._has_connected = True
             self._connected = True
+            # Re-publish HA discovery on every (re)connect so entities
+            # are registered even after broker restarts.
             if self.config.ha_discovery:
                 self._publish_ha_discovery()
         else:
@@ -85,7 +98,12 @@ class MqttPublisher:
         """Handle disconnection from broker."""
         self._connected = False
         if reason_code != 0:
-            logger.warning(f"Unexpected MQTT disconnection: {reason_code}")
+            logger.warning(
+                f"Unexpected MQTT disconnection (reason: {reason_code}). "
+                f"Automatic reconnection will be attempted."
+            )
+        else:
+            logger.info("Disconnected from MQTT broker")
 
     def _publish_ha_discovery(self) -> None:
         """Publish Home Assistant MQTT discovery configuration."""
@@ -239,7 +257,11 @@ class MqttPublisher:
         Returns:
             True if published successfully, False otherwise.
         """
-        if not self.config.enabled or not self._connected:
+        if not self.config.enabled:
+            return False
+
+        if not self._connected:
+            logger.warning("MQTT not connected, skipping thumbnail publish")
             return False
 
         if not self.config.thumbnail_enabled:
@@ -272,7 +294,11 @@ class MqttPublisher:
         Returns:
             True if published successfully, False otherwise.
         """
-        if not self.config.enabled or not self._connected:
+        if not self.config.enabled:
+            return False
+
+        if not self._connected:
+            logger.warning("MQTT not connected, skipping publish")
             return False
 
         payload = {
