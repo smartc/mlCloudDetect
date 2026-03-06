@@ -7,7 +7,7 @@ for binary classification (Clear/Cloudy). Exports directly to ONNX format
 compatible with the mlCloudDetect detector.
 
 Requirements (install on training machine):
-    pip install torch torchvision onnx
+    pip install torch torchvision onnx onnxscript
 
 Usage:
     python train_model.py                          # Train from ./images/
