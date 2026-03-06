@@ -32,8 +32,9 @@ from pathlib import Path
 
 import torch
 import torch.nn as nn
-from torch.utils.data import DataLoader, random_split
+from torch.utils.data import DataLoader, Subset
 from torchvision import datasets, models, transforms
+from sklearn.model_selection import train_test_split
 
 
 class ModelWithSoftmax(nn.Module):
@@ -94,25 +95,35 @@ def train(
     ])
 
     # --- Dataset ---
-    dataset = datasets.ImageFolder(data_dir, transform=train_transform)
-    class_names = dataset.classes
+    full_dataset = datasets.ImageFolder(data_dir)
+    class_names = full_dataset.classes
     num_classes = len(class_names)
 
-    print(f"Dataset: {len(dataset)} images, {num_classes} classes: {class_names}")
+    print(f"Dataset: {len(full_dataset)} images, {num_classes} classes: {class_names}")
 
     if num_classes < 2:
         print("Error: Need at least 2 classes. Check your data directory structure.")
         sys.exit(1)
 
-    train_size = int(0.8 * len(dataset))
-    val_size = len(dataset) - train_size
-    train_ds, val_ds = random_split(dataset, [train_size, val_size])
+    # Stratified split preserves class ratios in train/val sets
+    targets = [s[1] for s in full_dataset.samples]
+    train_idx, val_idx = train_test_split(
+        range(len(full_dataset)), test_size=0.2, stratify=targets, random_state=42,
+    )
 
-    # Apply validation transform (no augmentation) to validation set
-    val_ds.dataset = datasets.ImageFolder(data_dir, transform=val_transform)
+    train_ds = Subset(datasets.ImageFolder(data_dir, transform=train_transform), train_idx)
+    val_ds = Subset(datasets.ImageFolder(data_dir, transform=val_transform), val_idx)
+    train_size = len(train_idx)
+    val_size = len(val_idx)
 
     train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True)
     val_loader = DataLoader(val_ds, batch_size=batch_size)
+
+    # Report class distribution
+    train_targets = [targets[i] for i in train_idx]
+    for i, name in enumerate(class_names):
+        count = train_targets.count(i)
+        print(f"  {name}: {count} train, {[targets[j] for j in val_idx].count(i)} val")
 
     print(f"Split: {train_size} train, {val_size} validation")
 
@@ -135,7 +146,12 @@ def train(
     print(f"Device: {device}")
 
     # --- Training ---
-    criterion = nn.CrossEntropyLoss()
+    # Weight classes inversely to their frequency so the minority class
+    # (Clear) gets higher loss, preventing bias toward majority (Cloudy)
+    class_counts = torch.tensor([train_targets.count(i) for i in range(num_classes)],
+                                dtype=torch.float)
+    class_weights = (1.0 / class_counts) * class_counts.sum() / num_classes
+    criterion = nn.CrossEntropyLoss(weight=class_weights.to(device))
     optimizer = torch.optim.Adam(trainable, lr=lr, weight_decay=1e-4)
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=5, gamma=0.5)
 
