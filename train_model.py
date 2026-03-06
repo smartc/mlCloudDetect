@@ -56,6 +56,7 @@ def train(
     epochs: int = 15,
     lr: float = 0.001,
     patience: int = 5,
+    freeze: bool = True,
 ) -> None:
     """Train the model and export to ONNX.
 
@@ -68,6 +69,7 @@ def train(
         epochs: Maximum training epochs.
         lr: Initial learning rate.
         patience: Early stopping patience (epochs without improvement).
+        freeze: Freeze backbone, only train classifier (recommended for <1000 images).
     """
     # --- Transforms ---
     # Normalize to [-1, 1] to match detector preprocessing:
@@ -77,8 +79,10 @@ def train(
     train_transform = transforms.Compose([
         transforms.Resize((img_size, img_size)),
         transforms.RandomHorizontalFlip(),
-        transforms.RandomRotation(10),
-        transforms.ColorJitter(brightness=0.2, contrast=0.2),
+        transforms.RandomVerticalFlip(),
+        transforms.RandomRotation(30),
+        transforms.ColorJitter(brightness=0.3, contrast=0.3, saturation=0.2),
+        transforms.RandomAffine(degrees=0, translate=(0.1, 0.1)),
         transforms.ToTensor(),
         transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5]),
     ])
@@ -116,13 +120,23 @@ def train(
     model = models.mobilenet_v3_small(weights="IMAGENET1K_V1")
     model.classifier[-1] = nn.Linear(model.classifier[-1].in_features, num_classes)
 
+    # Freeze backbone to prevent overfitting on small datasets
+    if freeze:
+        for param in model.features.parameters():
+            param.requires_grad = False
+        trainable = model.classifier.parameters()
+        print("Backbone frozen, training classifier only")
+    else:
+        trainable = model.parameters()
+        print("Training all layers")
+
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = model.to(device)
     print(f"Device: {device}")
 
     # --- Training ---
     criterion = nn.CrossEntropyLoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+    optimizer = torch.optim.Adam(trainable, lr=lr, weight_decay=1e-4)
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=5, gamma=0.5)
 
     best_acc = 0.0
@@ -203,11 +217,6 @@ def train(
         model_out,
         input_names=["input"],
         output_names=["output"],
-        dynamic_axes={
-            "input": {0: "batch_size"},
-            "output": {0: "batch_size"},
-        },
-        opset_version=17,
     )
     print(f"Saved ONNX model: {model_out}")
 
@@ -255,6 +264,10 @@ def main() -> None:
         "--patience", type=int, default=5,
         help="Early stopping patience (default: 5)",
     )
+    parser.add_argument(
+        "--unfreeze", action="store_true",
+        help="Train all layers instead of just classifier (use with >1000 images)",
+    )
     args = parser.parse_args()
 
     train(
@@ -265,6 +278,7 @@ def main() -> None:
         batch_size=args.batch_size,
         lr=args.lr,
         patience=args.patience,
+        freeze=not args.unfreeze,
     )
 
 
