@@ -24,8 +24,37 @@ class MqttPublisher:
         self._connected = False
         self._has_connected = False
 
+    def _setup_client(self) -> None:
+        """Create and configure the MQTT client (idempotent)."""
+        if self.client is not None:
+            return
+
+        self.client = mqtt.Client(
+            mqtt.CallbackAPIVersion.VERSION2,
+            client_id=f"mlclouddetect-{self.config.device_id}",
+            protocol=mqtt.MQTTv5,
+        )
+
+        if self.config.username:
+            self.client.username_pw_set(
+                self.config.username,
+                self.config.password,
+            )
+
+        self.client.on_connect = self._on_connect
+        self.client.on_disconnect = self._on_disconnect
+
+        self.client.reconnect_delay_set(
+            min_delay=self.config.reconnect_min_delay,
+            max_delay=self.config.reconnect_max_delay,
+        )
+
     def connect(self) -> bool:
         """Connect to the MQTT broker.
+
+        Sets up the client and starts the network loop. If the initial
+        TCP connection fails the loop is still started so that paho's
+        built-in reconnection logic can keep retrying in the background.
 
         Returns:
             True if connection successful, False otherwise.
@@ -35,40 +64,48 @@ class MqttPublisher:
             return False
 
         try:
-            # Create client with protocol v5
-            self.client = mqtt.Client(
-                mqtt.CallbackAPIVersion.VERSION2,
-                client_id=f"mlclouddetect-{self.config.device_id}",
-                protocol=mqtt.MQTTv5,
-            )
+            self._setup_client()
 
-            # Set up authentication if provided
-            if self.config.username:
-                self.client.username_pw_set(
-                    self.config.username,
-                    self.config.password,
-                )
-
-            # Set up callbacks
-            self.client.on_connect = self._on_connect
-            self.client.on_disconnect = self._on_disconnect
-
-            # Configure automatic reconnection with exponential backoff
-            self.client.reconnect_delay_set(
-                min_delay=self.config.reconnect_min_delay,
-                max_delay=self.config.reconnect_max_delay,
-            )
-
-            # Connect to broker
             logger.info(f"Connecting to MQTT broker: {self.config.broker}:{self.config.port}")
             self.client.connect(self.config.broker, self.config.port)
             self.client.loop_start()
-
             return True
 
         except Exception as e:
             logger.error(f"Failed to connect to MQTT broker: {e}")
+            # Start the network loop anyway so paho's automatic
+            # reconnection can keep retrying in the background.
+            if self.client is not None:
+                try:
+                    self.client.loop_start()
+                except Exception:
+                    pass
             return False
+
+    def reconnect(self) -> bool:
+        """Attempt to reconnect if not currently connected.
+
+        Returns:
+            True if already connected or reconnection initiated.
+        """
+        if self._connected:
+            return True
+
+        if self.client is None:
+            return self.connect()
+
+        try:
+            self.client.reconnect()
+            return True
+        except Exception:
+            # reconnect() can fail if the initial connect() never
+            # stored the broker address.  Fall back to a fresh connect.
+            try:
+                self.client.connect(self.config.broker, self.config.port)
+                return True
+            except Exception as e:
+                logger.debug(f"MQTT reconnect attempt failed: {e}")
+                return False
 
     def disconnect(self) -> None:
         """Disconnect from the MQTT broker."""
@@ -261,7 +298,7 @@ class MqttPublisher:
             return False
 
         if not self._connected:
-            logger.warning("MQTT not connected, skipping thumbnail publish")
+            logger.warning("MQTT not connected, skipping thumbnail publish (will retry on next publish)")
             return False
 
         if not self.config.thumbnail_enabled:
@@ -298,8 +335,11 @@ class MqttPublisher:
             return False
 
         if not self._connected:
-            logger.warning("MQTT not connected, skipping publish")
-            return False
+            logger.warning("MQTT not connected, attempting reconnect")
+            self.reconnect()
+            if not self._connected:
+                logger.warning("MQTT reconnect failed, skipping publish")
+                return False
 
         payload = {
             "state": "cloudy" if result.is_cloudy else "clear",
