@@ -203,6 +203,9 @@ def run_service(config: Config, mqtt_publisher: MqttPublisher | None, quiet: boo
                 if not quiet:
                     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                     print(f"[{timestamp}] Daytime (Sun: {sun_altitude:.1f}°) - skipping detection")
+                # Publish daytime heartbeat so HA knows we're still alive
+                if mqtt_publisher and sun_altitude is not None:
+                    mqtt_publisher.publish_daytime(sun_altitude)
             elif image_path:
                 result = detector.detect(image_path)
 

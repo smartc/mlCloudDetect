@@ -18,11 +18,19 @@ logger = logging.getLogger(__name__)
 class MqttPublisher:
     """Publishes cloud detection results to MQTT with Home Assistant discovery."""
 
+    PAYLOAD_ONLINE = "online"
+    PAYLOAD_OFFLINE = "offline"
+
     def __init__(self, config: MqttConfig):
         self.config = config
         self.client: mqtt.Client | None = None
         self._connected = False
         self._has_connected = False
+
+    @property
+    def availability_topic(self) -> str:
+        """MQTT topic used for online/offline availability."""
+        return f"{self.config.topic}/availability"
 
     def _setup_client(self) -> None:
         """Create and configure the MQTT client (idempotent)."""
@@ -47,6 +55,14 @@ class MqttPublisher:
         self.client.reconnect_delay_set(
             min_delay=self.config.reconnect_min_delay,
             max_delay=self.config.reconnect_max_delay,
+        )
+
+        # Set Last Will and Testament so the broker publishes "offline"
+        # if we disconnect unexpectedly.
+        self.client.will_set(
+            self.availability_topic,
+            self.PAYLOAD_OFFLINE,
+            retain=True,
         )
 
     def connect(self) -> bool:
@@ -110,6 +126,14 @@ class MqttPublisher:
     def disconnect(self) -> None:
         """Disconnect from the MQTT broker."""
         if self.client:
+            # Publish offline before disconnecting so HA updates immediately
+            # rather than waiting for the broker's LWT timeout.
+            if self._connected:
+                self.client.publish(
+                    self.availability_topic,
+                    self.PAYLOAD_OFFLINE,
+                    retain=True,
+                )
             self.client.loop_stop()
             self.client.disconnect()
             self._connected = False
@@ -124,6 +148,12 @@ class MqttPublisher:
                 logger.info("Connected to MQTT broker")
                 self._has_connected = True
             self._connected = True
+            # Publish "online" availability (counterpart to the LWT).
+            self.client.publish(
+                self.availability_topic,
+                self.PAYLOAD_ONLINE,
+                retain=True,
+            )
             # Re-publish HA discovery on every (re)connect so entities
             # are registered even after broker restarts.
             if self.config.ha_discovery:
@@ -152,10 +182,17 @@ class MqttPublisher:
             "sw_version": "2.0",
         }
 
+        # Availability config shared by all entities
+        availability = {
+            "availability_topic": self.availability_topic,
+            "payload_available": self.PAYLOAD_ONLINE,
+            "payload_not_available": self.PAYLOAD_OFFLINE,
+        }
+
         discovery_prefix = self.config.ha_discovery_prefix
         device_id = self.config.device_id
 
-        # Text sensor showing "Cloudy" or "Clear"
+        # Text sensor showing "Cloudy", "Clear", or "Daytime"
         sky_sensor_config = {
             "name": "Sky Condition",
             "unique_id": f"{device_id}_sky_condition",
@@ -165,6 +202,7 @@ class MqttPublisher:
             "icon": "mdi:weather-cloudy",
             "json_attributes_topic": self.config.topic,
             "json_attributes_template": "{{ value_json | tojson }}",
+            **availability,
         }
 
         # Binary sensor for automations (is_cloudy true/false)
@@ -177,6 +215,7 @@ class MqttPublisher:
             "payload_off": False,
             "device": device_info,
             "icon": "mdi:cloud-question",
+            **availability,
         }
 
         # Sensor for confidence level
@@ -188,6 +227,7 @@ class MqttPublisher:
             "unit_of_measurement": "%",
             "device": device_info,
             "icon": "mdi:percent",
+            **availability,
         }
 
         # Publish discovery configs
@@ -217,6 +257,7 @@ class MqttPublisher:
                 "topic": self.config.thumbnail_topic,
                 "device": device_info,
                 "icon": "mdi:camera",
+                **availability,
             }
 
             self.client.publish(
@@ -319,6 +360,48 @@ class MqttPublisher:
 
         except Exception as e:
             logger.error(f"Failed to publish thumbnail: {e}")
+            return False
+
+    def publish_daytime(self, sun_altitude: float) -> bool:
+        """Publish a daytime status heartbeat to MQTT.
+
+        Keeps HA sensors fresh during daytime when no detection runs.
+
+        Args:
+            sun_altitude: Current sun altitude in degrees.
+
+        Returns:
+            True if published successfully, False otherwise.
+        """
+        if not self.config.enabled:
+            return False
+
+        if not self._connected:
+            self.reconnect()
+            if not self._connected:
+                return False
+
+        payload = {
+            "state": "daytime",
+            "class_name": "Daytime",
+            "confidence": 0.0,
+            "is_cloudy": False,
+            "image_path": "",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "sun_altitude": round(sun_altitude, 1),
+        }
+
+        try:
+            self.client.publish(
+                self.config.topic,
+                json.dumps(payload),
+                retain=True,
+            )
+            logger.info(f"Published daytime status to MQTT (sun: {sun_altitude:.1f}°)")
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to publish daytime status: {e}")
             return False
 
     def publish(self, result: DetectionResult, sun_altitude: float | None = None) -> bool:
