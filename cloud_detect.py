@@ -20,6 +20,7 @@ from pysolar.solar import get_altitude
 from config import Config, load_config
 from detector import CloudDetector, DetectionResult, ImageSource
 from mqtt import MqttPublisher
+from training import TrainingCapture
 
 # Configure logging - default to WARNING, use -v for verbose
 logging.basicConfig(
@@ -164,6 +165,13 @@ def run_service(config: Config, mqtt_publisher: MqttPublisher | None, quiet: boo
     detector = CloudDetector(config.model)
     source = ImageSource(config.camera)
 
+    # Initialize training capture if enabled
+    training_capture = None
+    if config.training.enabled:
+        training_capture = TrainingCapture(config.training, detector)
+        if not quiet:
+            print(f"Training capture enabled (every {config.training.interval}s)")
+
     logger.info(f"Starting service (interval: {config.service.interval}s, pending_count: {config.service.pending_count})")
     if not quiet:
         print(f"mlCloudDetect service started (interval: {config.service.interval}s)")
@@ -181,13 +189,24 @@ def run_service(config: Config, mqtt_publisher: MqttPublisher | None, quiet: boo
                 is_daytime = sun_altitude > config.observatory.daytime_threshold
                 logger.info(f"Sun altitude: {sun_altitude:.1f}° (daytime: {is_daytime})")
 
+            # Always fetch the latest image (needed for training capture
+            # even during daytime).
+            image_path = None
+            try:
+                image_path = source.get_latest_image()
+            except FileNotFoundError as e:
+                logger.warning(f"Image not found: {e}")
+
+            # Main detection (nighttime only)
+            result = None
             if is_daytime:
                 if not quiet:
                     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                     print(f"[{timestamp}] Daytime (Sun: {sun_altitude:.1f}°) - skipping detection")
-            else:
-                # Get latest image and run detection
-                image_path = source.get_latest_image()
+                # Publish daytime heartbeat so HA knows we're still alive
+                if mqtt_publisher and sun_altitude is not None:
+                    mqtt_publisher.publish_daytime(sun_altitude)
+            elif image_path:
                 result = detector.detect(image_path)
 
                 # Update state with hysteresis
@@ -201,8 +220,10 @@ def run_service(config: Config, mqtt_publisher: MqttPublisher | None, quiet: boo
                 if mqtt_publisher:
                     mqtt_publisher.publish(result, sun_altitude)
 
-        except FileNotFoundError as e:
-            logger.warning(f"Image not found: {e}")
+            # Training capture (daytime and nighttime)
+            if training_capture and image_path and training_capture.should_capture():
+                training_capture.capture(image_path, is_daytime, sun_altitude, result)
+
         except Exception as e:
             logger.error(f"Detection error: {e}")
 

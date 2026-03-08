@@ -73,6 +73,10 @@ thumbnail_quality = 75
 # Base URL for linking to full-size images on INDI-Allsky web server
 image_base_url = "https://indi-allsky.local/images"
 
+# Reconnection settings
+reconnect_min_delay = 1    # Initial delay (seconds) before first reconnect attempt
+reconnect_max_delay = 120  # Maximum delay (seconds) between reconnect attempts
+
 [service]
 # Service mode: "single" (run once and exit) or "continuous" (run as daemon)
 mode = "single"
@@ -83,6 +87,16 @@ interval = 60
 # Number of consecutive readings required before changing state
 # Helps prevent rapid state changes due to transient conditions
 pending_count = 3
+
+[training]
+# Enable periodic capture of training images
+enabled = false
+
+# Capture interval in seconds (default: 300 = 5 minutes)
+interval = 300
+
+# Output directory for training images (relative to application directory)
+output_dir = "training_data"
 """
 
 
@@ -126,6 +140,8 @@ class MqttConfig:
     thumbnail_size: int = 320
     thumbnail_quality: int = 75
     image_base_url: str = "https://indi-allsky.local/images"
+    reconnect_min_delay: int = 1
+    reconnect_max_delay: int = 120
 
 
 @dataclass
@@ -136,12 +152,20 @@ class ServiceConfig:
 
 
 @dataclass
+class TrainingConfig:
+    enabled: bool = False
+    interval: int = 300  # seconds between captures
+    output_dir: str = "training_data"
+
+
+@dataclass
 class Config:
     observatory: ObservatoryConfig = field(default_factory=ObservatoryConfig)
     camera: CameraConfig = field(default_factory=CameraConfig)
     model: ModelConfig = field(default_factory=ModelConfig)
     mqtt: MqttConfig = field(default_factory=MqttConfig)
     service: ServiceConfig = field(default_factory=ServiceConfig)
+    training: TrainingConfig = field(default_factory=TrainingConfig)
 
 
 def load_config(config_path: Path | None = None) -> Config:
@@ -208,6 +232,8 @@ def load_config(config_path: Path | None = None) -> Config:
             thumbnail_size=mqtt.get("thumbnail_size", 320),
             thumbnail_quality=mqtt.get("thumbnail_quality", 75),
             image_base_url=mqtt.get("image_base_url", "https://indi-allsky.local/images"),
+            reconnect_min_delay=mqtt.get("reconnect_min_delay", 1),
+            reconnect_max_delay=mqtt.get("reconnect_max_delay", 120),
         )
 
     if "service" in data:
@@ -216,6 +242,14 @@ def load_config(config_path: Path | None = None) -> Config:
             mode=svc.get("mode", "continuous"),
             interval=svc.get("interval", 60),
             pending_count=svc.get("pending_count", 3),
+        )
+
+    if "training" in data:
+        trn = data["training"]
+        config.training = TrainingConfig(
+            enabled=trn.get("enabled", False),
+            interval=trn.get("interval", 300),
+            output_dir=trn.get("output_dir", "training_data"),
         )
 
     return config

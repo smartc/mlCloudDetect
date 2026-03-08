@@ -18,13 +18,59 @@ logger = logging.getLogger(__name__)
 class MqttPublisher:
     """Publishes cloud detection results to MQTT with Home Assistant discovery."""
 
+    PAYLOAD_ONLINE = "online"
+    PAYLOAD_OFFLINE = "offline"
+
     def __init__(self, config: MqttConfig):
         self.config = config
         self.client: mqtt.Client | None = None
         self._connected = False
+        self._has_connected = False
+
+    @property
+    def availability_topic(self) -> str:
+        """MQTT topic used for online/offline availability."""
+        return f"{self.config.topic}/availability"
+
+    def _setup_client(self) -> None:
+        """Create and configure the MQTT client (idempotent)."""
+        if self.client is not None:
+            return
+
+        self.client = mqtt.Client(
+            mqtt.CallbackAPIVersion.VERSION2,
+            client_id=f"mlclouddetect-{self.config.device_id}",
+            protocol=mqtt.MQTTv5,
+        )
+
+        if self.config.username:
+            self.client.username_pw_set(
+                self.config.username,
+                self.config.password,
+            )
+
+        self.client.on_connect = self._on_connect
+        self.client.on_disconnect = self._on_disconnect
+
+        self.client.reconnect_delay_set(
+            min_delay=self.config.reconnect_min_delay,
+            max_delay=self.config.reconnect_max_delay,
+        )
+
+        # Set Last Will and Testament so the broker publishes "offline"
+        # if we disconnect unexpectedly.
+        self.client.will_set(
+            self.availability_topic,
+            self.PAYLOAD_OFFLINE,
+            retain=True,
+        )
 
     def connect(self) -> bool:
         """Connect to the MQTT broker.
+
+        Sets up the client and starts the network loop. If the initial
+        TCP connection fails the loop is still started so that paho's
+        built-in reconnection logic can keep retrying in the background.
 
         Returns:
             True if connection successful, False otherwise.
@@ -34,38 +80,60 @@ class MqttPublisher:
             return False
 
         try:
-            # Create client with protocol v5
-            self.client = mqtt.Client(
-                mqtt.CallbackAPIVersion.VERSION2,
-                client_id=f"mlclouddetect-{self.config.device_id}",
-                protocol=mqtt.MQTTv5,
-            )
+            self._setup_client()
 
-            # Set up authentication if provided
-            if self.config.username:
-                self.client.username_pw_set(
-                    self.config.username,
-                    self.config.password,
-                )
-
-            # Set up callbacks
-            self.client.on_connect = self._on_connect
-            self.client.on_disconnect = self._on_disconnect
-
-            # Connect to broker
             logger.info(f"Connecting to MQTT broker: {self.config.broker}:{self.config.port}")
             self.client.connect(self.config.broker, self.config.port)
             self.client.loop_start()
-
             return True
 
         except Exception as e:
             logger.error(f"Failed to connect to MQTT broker: {e}")
+            # Start the network loop anyway so paho's automatic
+            # reconnection can keep retrying in the background.
+            if self.client is not None:
+                try:
+                    self.client.loop_start()
+                except Exception:
+                    pass
             return False
+
+    def reconnect(self) -> bool:
+        """Attempt to reconnect if not currently connected.
+
+        Returns:
+            True if already connected or reconnection initiated.
+        """
+        if self._connected:
+            return True
+
+        if self.client is None:
+            return self.connect()
+
+        try:
+            self.client.reconnect()
+            return True
+        except Exception:
+            # reconnect() can fail if the initial connect() never
+            # stored the broker address.  Fall back to a fresh connect.
+            try:
+                self.client.connect(self.config.broker, self.config.port)
+                return True
+            except Exception as e:
+                logger.debug(f"MQTT reconnect attempt failed: {e}")
+                return False
 
     def disconnect(self) -> None:
         """Disconnect from the MQTT broker."""
         if self.client:
+            # Publish offline before disconnecting so HA updates immediately
+            # rather than waiting for the broker's LWT timeout.
+            if self._connected:
+                self.client.publish(
+                    self.availability_topic,
+                    self.PAYLOAD_OFFLINE,
+                    retain=True,
+                )
             self.client.loop_stop()
             self.client.disconnect()
             self._connected = False
@@ -74,8 +142,20 @@ class MqttPublisher:
     def _on_connect(self, client, userdata, flags, reason_code, properties) -> None:
         """Handle connection to broker."""
         if reason_code == 0:
-            logger.info("Connected to MQTT broker")
+            if self._has_connected:
+                logger.info("Reconnected to MQTT broker")
+            else:
+                logger.info("Connected to MQTT broker")
+                self._has_connected = True
             self._connected = True
+            # Publish "online" availability (counterpart to the LWT).
+            self.client.publish(
+                self.availability_topic,
+                self.PAYLOAD_ONLINE,
+                retain=True,
+            )
+            # Re-publish HA discovery on every (re)connect so entities
+            # are registered even after broker restarts.
             if self.config.ha_discovery:
                 self._publish_ha_discovery()
         else:
@@ -85,7 +165,12 @@ class MqttPublisher:
         """Handle disconnection from broker."""
         self._connected = False
         if reason_code != 0:
-            logger.warning(f"Unexpected MQTT disconnection: {reason_code}")
+            logger.warning(
+                f"Unexpected MQTT disconnection (reason: {reason_code}). "
+                f"Automatic reconnection will be attempted."
+            )
+        else:
+            logger.info("Disconnected from MQTT broker")
 
     def _publish_ha_discovery(self) -> None:
         """Publish Home Assistant MQTT discovery configuration."""
@@ -97,10 +182,17 @@ class MqttPublisher:
             "sw_version": "2.0",
         }
 
+        # Availability config shared by all entities
+        availability = {
+            "availability_topic": self.availability_topic,
+            "payload_available": self.PAYLOAD_ONLINE,
+            "payload_not_available": self.PAYLOAD_OFFLINE,
+        }
+
         discovery_prefix = self.config.ha_discovery_prefix
         device_id = self.config.device_id
 
-        # Text sensor showing "Cloudy" or "Clear"
+        # Text sensor showing "Cloudy", "Clear", or "Daytime"
         sky_sensor_config = {
             "name": "Sky Condition",
             "unique_id": f"{device_id}_sky_condition",
@@ -110,6 +202,7 @@ class MqttPublisher:
             "icon": "mdi:weather-cloudy",
             "json_attributes_topic": self.config.topic,
             "json_attributes_template": "{{ value_json | tojson }}",
+            **availability,
         }
 
         # Binary sensor for automations (is_cloudy true/false)
@@ -122,6 +215,7 @@ class MqttPublisher:
             "payload_off": False,
             "device": device_info,
             "icon": "mdi:cloud-question",
+            **availability,
         }
 
         # Sensor for confidence level
@@ -133,6 +227,7 @@ class MqttPublisher:
             "unit_of_measurement": "%",
             "device": device_info,
             "icon": "mdi:percent",
+            **availability,
         }
 
         # Publish discovery configs
@@ -162,6 +257,7 @@ class MqttPublisher:
                 "topic": self.config.thumbnail_topic,
                 "device": device_info,
                 "icon": "mdi:camera",
+                **availability,
             }
 
             self.client.publish(
@@ -239,7 +335,11 @@ class MqttPublisher:
         Returns:
             True if published successfully, False otherwise.
         """
-        if not self.config.enabled or not self._connected:
+        if not self.config.enabled:
+            return False
+
+        if not self._connected:
+            logger.warning("MQTT not connected, skipping thumbnail publish (will retry on next publish)")
             return False
 
         if not self.config.thumbnail_enabled:
@@ -262,6 +362,48 @@ class MqttPublisher:
             logger.error(f"Failed to publish thumbnail: {e}")
             return False
 
+    def publish_daytime(self, sun_altitude: float) -> bool:
+        """Publish a daytime status heartbeat to MQTT.
+
+        Keeps HA sensors fresh during daytime when no detection runs.
+
+        Args:
+            sun_altitude: Current sun altitude in degrees.
+
+        Returns:
+            True if published successfully, False otherwise.
+        """
+        if not self.config.enabled:
+            return False
+
+        if not self._connected:
+            self.reconnect()
+            if not self._connected:
+                return False
+
+        payload = {
+            "state": "daytime",
+            "class_name": "Daytime",
+            "confidence": 0.0,
+            "is_cloudy": False,
+            "image_path": "",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "sun_altitude": round(sun_altitude, 1),
+        }
+
+        try:
+            self.client.publish(
+                self.config.topic,
+                json.dumps(payload),
+                retain=True,
+            )
+            logger.info(f"Published daytime status to MQTT (sun: {sun_altitude:.1f}°)")
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to publish daytime status: {e}")
+            return False
+
     def publish(self, result: DetectionResult, sun_altitude: float | None = None) -> bool:
         """Publish detection result to MQTT.
 
@@ -272,8 +414,15 @@ class MqttPublisher:
         Returns:
             True if published successfully, False otherwise.
         """
-        if not self.config.enabled or not self._connected:
+        if not self.config.enabled:
             return False
+
+        if not self._connected:
+            logger.warning("MQTT not connected, attempting reconnect")
+            self.reconnect()
+            if not self._connected:
+                logger.warning("MQTT reconnect failed, skipping publish")
+                return False
 
         payload = {
             "state": "cloudy" if result.is_cloudy else "clear",

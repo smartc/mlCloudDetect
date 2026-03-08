@@ -1,0 +1,7 @@
+# Training dependencies - install on machine with GPU
+# pip install -r requirements-training.txt
+torch>=2.0.0
+torchvision>=0.15.0
+onnx>=1.14.0
+onnxscript>=0.1.0
+scikit-learn>=1.0.0
